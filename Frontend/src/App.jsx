@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import "./App.css";
-import mmclogo from "../public/mmc-logo.png";
+// Logo served from Vite public folder at the root path
+const mmclogo = "/mmc-logo.png";
 
 // Skip ngrok browser warning for API calls
 axios.defaults.headers.common["ngrok-skip-browser-warning"] = "true";
@@ -158,7 +159,10 @@ function extractLineItems(type, items) {
           parent_id: parent.id,
           parent_number: parent.bill_number,
           date: parent.issue_date,
-          description: line.description || line.name || "",
+          bill_total_amount: toAmount(parent.total_amount ?? parent.amount),
+          due_date: parent.due_date,
+          due_offset_days: parent.due_offset_days,
+          description: line.description || line.name || parent.description || parent.notes || "",
           qty: line.quantity || line.qty || 1,
           unit_cost: toAmount(line.unit_cost),
           total: toAmount(line.total_amount),
@@ -169,12 +173,23 @@ function extractLineItems(type, items) {
           "Tax Name 2": line.tax_name2 ?? "",
           "Tax percentage 1": line.tax_percent1 ?? "",
           "Tax percentage 2": line.tax_percent2 ?? "",
+          vendorid:
+            parent.vendorid ||
+            parent.vendor_id ||
+            parent.vendor?.id ||
+            parent.vendor?.vendorid ||
+            parent.vendor?.vendor_id ||
+            parent.vendor?.accountid ||
+            parent.vendor?.account_id ||
+            parent.vendor?.userid ||
+            parent.vendor?.uuid ||
+            "",
           Vendor:
             parent.vendor ||
             parent.vendor_name ||
-            parent.vendorid ||
-            parent.vendor_id ||
             parent.vendor_display_name ||
+            parent.bill_vendor?.vendor_name ||
+            parent.bill_vendor?.name ||
             (parent.vendor && parent.vendor.vendor_name) ||
             "",
         });
@@ -221,7 +236,7 @@ function extractLineItems(type, items) {
 function App() {
   const backend = (() => {
     const envBackend = import.meta.env.VITE_BACKEND;
-    const localDefault = `${window.location.protocol}//${window.location.hostname}:5000`;
+    const localDefault = `${window.location.protocol}//${window.location.hostname}:5050`;
     // If developing on localhost, prefer hitting local backend directly to bypass ngrok/browser warning.
     if (window.location.hostname === "localhost") return localDefault;
     return envBackend || localDefault;
@@ -444,6 +459,7 @@ function App() {
           account_id: accountId,
           business_id: businessId,
           business_uuid: businessUUID,
+          include_raw: true,
         },
         timeout: 180000,
       });
@@ -484,6 +500,7 @@ function App() {
           business_uuid: businessUUID,
           line_mode: type === "credit_notes" ? "true" : undefined,
           max_pages: type === "journal_entries" ? 150 : undefined,
+          include_raw: true,
         },
         timeout: ["journal_entries", "invoices", "estimates"].includes(type) ? 300000 : 180000,
       });
@@ -530,6 +547,8 @@ function App() {
 
     const columns = [
       "Invoice ID",
+      "id",
+      "fname",
       "Invoice Number",
       "Client/Organization",
       "Date",
@@ -559,6 +578,7 @@ function App() {
           account_id: accountId,
           business_id: businessId,
           business_uuid: businessUUID,
+          include_raw: true,
         },
         timeout: 300000,
       });
@@ -642,6 +662,13 @@ function App() {
 
           rows.push({
             "Invoice ID": parent.invoiceid || parent.id || "",
+            id: parent.id || parent.invoiceid || "",
+            fname:
+              parent.fname ||
+              parent.client?.fname ||
+              parent.client?.name ||
+              parent.customer?.fname ||
+              "",
             "Invoice Number": parent.invoice_number || parent.number || "",
             "Client/Organization": clientOrg,
             "Date": toDate(parent.create_date),
@@ -748,6 +775,7 @@ function App() {
           account_id: accountId,
           business_id: businessId,
           business_uuid: businessUUID,
+          include_raw: true,
         },
         timeout: 180000,
       });
@@ -888,6 +916,8 @@ function App() {
       "total_amount",
       "line_items",
       "parent_id",
+      "vendorid",
+      "description",
       "line_description",
       "quantity",
       "category",
@@ -911,6 +941,7 @@ function App() {
           account_id: accountId,
           business_id: businessId,
           business_uuid: businessUUID,
+          include_raw: true,
         },
         timeout: 300000,
       });
@@ -944,6 +975,20 @@ function App() {
             total_amount: toAmount(parent.total_amount),
             line_items: parentLines.length,
             parent_id: parent.id ?? parent.billid ?? parent.bill_id,
+            vendorid:
+              parent.vendorid ||
+              parent.vendor_id ||
+              parent.vendor?.id ||
+              parent.vendor?.vendorid ||
+              parent.vendor?.vendor_id ||
+              parent.vendor?.accountid ||
+              parent.vendor?.account_id ||
+              parent.vendor?.userid ||
+              parent.vendor?.uuid ||
+              parent.bill_vendor?.id ||
+              parent.bill_vendor?.vendor_id ||
+              "",
+            description: parent.description || "",
             line_description: line.description || line.name || "",
             quantity: line.quantity || line.qty || 1,
             category: line.category?.category || line.category || "",
@@ -1002,7 +1047,11 @@ function App() {
 
     const columns = [
       "vendor",
+      "vendorid",
       "category",
+      "categoryid",
+      "date",
+      "line_date",
       "taxAmount1",
       "taxAmount2",
       "taxName1",
@@ -1010,7 +1059,7 @@ function App() {
       "taxPercent1",
       "taxPercent2",
       "amount",
-      "line_description",
+      "notes",
     ];
 
     try {
@@ -1022,6 +1071,7 @@ function App() {
           account_id: accountId,
           business_id: businessId,
           business_uuid: businessUUID,
+          include_raw: true,
         },
         timeout: 180000,
       });
@@ -1069,10 +1119,48 @@ function App() {
             parent.overall_category ||
             "";
           const lineDesc = line.name || line.description || parent.notes || category || "";
+          const categoryId =
+            line.category_id ||
+            line.categoryid ||
+            line.category?.categoryid ||
+            line.category?.id ||
+            line.category?.category_id ||
+            parent.category?.id ||
+            parent.category?.categoryid ||
+            parent.categoryid ||
+            parent.category_id ||
+            parent.overall_category_id ||
+            parent.overall_categoryid ||
+            "";
+          const vendorId =
+            parent.vendorid ||
+            parent.vendor_id ||
+            parent.vendor?.id ||
+            parent.vendor?.vendorid ||
+            parent.vendor?.vendor_id ||
+            parent.vendor?.accountid ||
+            parent.vendor?.account_id ||
+            parent.vendor?.userid ||
+            parent.vendor?.uuid ||
+            "";
+          const dateVal =
+            line.date ||
+            parent.date ||
+            parent.created_at ||
+            parent.updated_at ||
+            parent.create_date ||
+            parent.transaction_date ||
+            "";
+          const lineDate = line.date || parent.date || "";
+          const notes = parent.notes || lineDesc || "";
 
           rows.push({
             vendor: parent.vendor || "",
+            vendorid: vendorId,
             category,
+            categoryid: categoryId,
+            date: dateVal,
+            line_date: lineDate,
             taxAmount1,
             taxAmount2,
             taxName1,
@@ -1080,7 +1168,7 @@ function App() {
             taxPercent1,
             taxPercent2,
             amount,
-            line_description: lineDesc,
+            notes,
           });
         });
       });
@@ -1405,12 +1493,29 @@ function App() {
               className="secondary-btn"
               onClick={() => {
                 if (!raw) return alert("No raw JSON available yet.");
-                const blob = new Blob([JSON.stringify(raw, null, 2)], {
+                // If backend sent { raw: [...] }, prefer that; otherwise fall back to whole response
+                const payload = raw.raw ?? raw;
+                const blob = new Blob([JSON.stringify(payload, null, 2)], {
                   type: "application/json",
                 });
                 const a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
                 a.download = `${type || "export"}_raw.json`;
+                a.click();
+              }}
+            >
+              ⬇️ Download Raw JSON
+            </button>
+            <button
+              className="secondary-btn"
+              onClick={() => {
+                if (!data) return alert("No formatted JSON available yet.");
+                const blob = new Blob([JSON.stringify(raw, null, 2)], {
+                  type: "application/json",
+                });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `${type || "export"}.json`;
                 a.click();
               }}
             >
