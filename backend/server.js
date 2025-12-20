@@ -32,6 +32,19 @@ const pretty = (obj) => {
     return String(obj);
   }
 };
+// Normalize incoming date values to YYYY-MM-DD without timezone shifts
+const normalizeDateParam = (value) => {
+  if (!value) return "";
+  const str = String(value).trim();
+  const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const yyyy = parsed.getFullYear();
+  const mm = String(parsed.getMonth() + 1).padStart(2, "0");
+  const dd = String(parsed.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
 // ---------------------------
 // safe .env write helper
 // ---------------------------
@@ -427,9 +440,10 @@ app.get("/api/extract", async (req, res) => {
 
     if (!type) return res.status(400).json({ error: "Missing 'type' parameter" });
 
-    const iso = (d) => (d ? new Date(d).toISOString().split("T")[0] : "");
-    start_date = iso(start_date);
-    end_date = iso(end_date);
+    start_date = normalizeDateParam(start_date);
+    end_date = normalizeDateParam(end_date);
+
+    console.log(`Dates applied -> start: ${start_date || "(none)"} | end: ${end_date || "(none)"}`);
 
     const validToken = await getFreshTokenSafely();
 
@@ -449,6 +463,17 @@ app.get("/api/extract", async (req, res) => {
     const makeBizUuidUrl = (s) => `/accounting/businesses/${business_uuid}${s}`;
     const makeProjectUrl = () => `/projects/business/${business_id}/projects?per_page=100`;
     const makeTimeUrl = (s) => `/comments/business/${business_id}${s}`;
+    const applyDateParams = (urlObj) => {
+      if (!endpoint.allowDates) return;
+      if (start_date) {
+        urlObj.searchParams.set("start_date", start_date);
+        urlObj.searchParams.set("search[start_date]", start_date);
+      }
+      if (end_date) {
+        urlObj.searchParams.set("end_date", end_date);
+        urlObj.searchParams.set("search[end_date]", end_date);
+      }
+    };
 
     // ---------------------------
     // Line Item Extractor
@@ -1125,10 +1150,7 @@ app.get("/api/extract", async (req, res) => {
       while (true) {
         const urlObj = new URL(`${FRESHBOOKS_BASE}${endpoint.url}`);
 
-        if (endpoint.allowDates) {
-          if (start_date) urlObj.searchParams.set("start_date", start_date);
-          if (end_date) urlObj.searchParams.set("end_date", end_date);
-        }
+        applyDateParams(urlObj);
 
         if (endpoint.include?.length) {
           const includes = Array.isArray(endpoint.include)
@@ -1202,29 +1224,13 @@ app.get("/api/extract", async (req, res) => {
           baseUrl.includes("/journal_entries/journal_entries");
 
         if (isAdjJournal) {
-          // Adjustment journals → page_number / page_size
+          // Adjustment journals ? page_number / page_size
           urlObj.searchParams.set("page_number", String(page));
           urlObj.searchParams.set("page_size", String(per_page));
-
-          // Not documented, but if dates are passed we add them plainly
-          if (start_date) urlObj.searchParams.set("start_date", start_date);
-          if (end_date) urlObj.searchParams.set("end_date", end_date);
         } else {
-          // Normal account-scoped journal entries by account → page / per_page
+          // Normal account-scoped journal entries by account ? page / per_page
           urlObj.searchParams.set("page", String(page));
           urlObj.searchParams.set("per_page", String(per_page));
-
-          if (endpoint.allowDates) {
-            if (isAccountJournal) {
-              // Per docs: start_date / end_date at top-level
-              if (start_date) urlObj.searchParams.set("start_date", start_date);
-              if (end_date) urlObj.searchParams.set("end_date", end_date);
-            } else {
-              // Generic fallback
-              if (start_date) urlObj.searchParams.set("search[start_date]", start_date);
-              if (end_date) urlObj.searchParams.set("search[end_date]", end_date);
-            }
-          }
 
           if (isAccountJournal) {
             // Required for ledger-style journal entries
@@ -1233,7 +1239,8 @@ app.get("/api/extract", async (req, res) => {
           }
         }
 
-        const url = urlObj.toString();
+        applyDateParams(urlObj);
+const url = urlObj.toString();
         console.log(`[Pagination] ${type} page=${page} url=${url}`);
 
         try {
@@ -1331,10 +1338,7 @@ app.get("/api/extract", async (req, res) => {
       urlObj.searchParams.set("page", String(page));
       urlObj.searchParams.set("per_page", String(per_page));
 
-      if (endpoint.allowDates) {
-        if (start_date) urlObj.searchParams.set("search[start_date]", start_date);
-        if (end_date) urlObj.searchParams.set("search[end_date]", end_date);
-      }
+      applyDateParams(urlObj);
 
       if (endpoint.include?.length) {
         const includes = Array.isArray(endpoint.include)
@@ -1745,11 +1749,9 @@ app.get("/api/generate-journal", async (req, res) => {
 
 
 
-    const iso = (d) => (d ? new Date(d).toISOString().split("T")[0] : "");
+    start_date = normalizeDateParam(start_date);
 
-    start_date = iso(start_date);
-
-    end_date = iso(end_date);
+    end_date = normalizeDateParam(end_date);
 
 
 

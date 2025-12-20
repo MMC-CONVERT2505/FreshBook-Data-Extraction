@@ -67,6 +67,62 @@ const toNumberOrZero = (value) => {
   return Number.isNaN(n) ? 0 : n;
 };
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+// Normalize date inputs to YYYY-MM-DD without timezone shifts
+const toDateParam = (value) => {
+  if (!value) return "";
+  const str = String(value).trim();
+  const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const yyyy = parsed.getFullYear();
+  const mm = String(parsed.getMonth() + 1).padStart(2, "0");
+  const dd = String(parsed.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+const toDateObj = (value) => {
+  const iso = toDateParam(value);
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+const DATE_KEYS = [
+  "create_date",
+  "issue_date",
+  "date",
+  "entry_date",
+  "transaction_date",
+  "paid_date",
+  "line_date",
+  "updated",
+  "updated_at",
+];
+const pickDateValue = (obj, fallbackObj) => {
+  for (const key of DATE_KEYS) {
+    if (obj && obj[key]) return obj[key];
+  }
+  if (fallbackObj) {
+    for (const key of DATE_KEYS) {
+      if (fallbackObj[key]) return fallbackObj[key];
+    }
+  }
+  return null;
+};
+const isWithinRange = (dateStr, start, end) => {
+  const d = toDateObj(dateStr);
+  const s = toDateObj(start);
+  const e = toDateObj(end);
+  if (!d) return false;
+  if (s && d < s) return false;
+  if (e && d > e) return false;
+  return true;
+};
+const filterByDateRange = (arr, start, end) =>
+  Array.isArray(arr) ? arr.filter((item) => isWithinRange(pickDateValue(item), start, end)) : [];
+const updateCount = (updater, label, value) => {
+  const safeLabel = label || "Unknown";
+  updater((prev) => ({ ...prev, [safeLabel]: Number(value) || 0 }));
+};
 
 /* ---------------------------------------------------
    LINE-ITEM EXTRACTOR (UNIVERSAL FOR ALL TYPES)
@@ -267,6 +323,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [bizLoading, setBizLoading] = useState(false);
+  const [typeCounts, setTypeCounts] = useState({});
 
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -443,8 +500,6 @@ function App() {
     if (!type) return alert("Select data type!");
     if (!start || !end) return alert("Select date range!");
 
-    const toISO = (d) => new Date(d).toISOString().split("T")[0];
-
     setLoading(true);
     setData(null);
     setProgress("⏳ Extracting data...");
@@ -453,8 +508,8 @@ function App() {
     try {
       const res = await axios.get(`${backend}/api/extract`, {
         params: {
-          start_date: toISO(start),
-          end_date: toISO(end),
+          start_date: toDateParam(start),
+          end_date: toDateParam(end),
           type,
           account_id: accountId,
           business_id: businessId,
@@ -466,8 +521,14 @@ function App() {
 
       setProgressPercent(100);
       setProgress("✅ Extraction complete!");
-      setRaw(res.data);
-      setData(res.data);
+      const payload = res.data || {};
+      const dataset = Array.isArray(payload.data) ? payload.data : [];
+      const filtered = filterByDateRange(dataset, start, end);
+      setRaw({ ...payload, data: filtered });
+      setData({ ...payload, data: filtered, total: filtered.length });
+      const label = toTitle(type);
+      updateCount(setTypeCounts, label, filtered.length);
+      setProgress(`✅ ${label} ready: ${filtered.length} rows`);
     } catch (err) {
       console.error("❌ Extraction failed:", err);
       setProgress(`❌ Failed: ${formatAxiosError(err)}`);
@@ -483,8 +544,6 @@ function App() {
     if (!accountId) return alert("Account ID missing. Update business first.");
     if (!start || !end) return alert("Select date range!");
 
-    const toISO = (d) => new Date(d).toISOString().split("T")[0];
-
     setLoading(true);
     setProgress("⏳ Fetching line items...");
     setData(null);
@@ -492,8 +551,8 @@ function App() {
     try {
       const res = await axios.get(`${backend}/api/extract`, {
         params: {
-          start_date: toISO(start),
-          end_date: toISO(end),
+          start_date: toDateParam(start),
+          end_date: toDateParam(end),
           type,
           account_id: accountId,
           business_id: businessId,
@@ -507,7 +566,8 @@ function App() {
 
       setRaw(res.data);
       const raw = res.data?.data || [];
-      const lines = extractLineItems(type, raw);
+      const parents = filterByDateRange(raw, start, end);
+      const lines = extractLineItems(type, parents);
 
       setData({
         success: true,
@@ -515,7 +575,8 @@ function App() {
         data: lines,
       });
 
-      setProgress(`📄 Found ${lines.length} line items!`);
+      setProgress(`📄 ${toTitle(type)} line items: ${lines.length} rows`);
+      updateCount(setTypeCounts, `${toTitle(type)} line items`, lines.length);
     } catch (err) {
       console.error("Line item extract failed:", err);
       alert(`Line item extract failed: ${formatAxiosError(err)}`);
@@ -529,7 +590,6 @@ function App() {
     if (!start || !end) return alert("Select date range!");
     if (!accountId) return alert("Account ID missing. Update business first.");
 
-    const toISO = (d) => new Date(d).toISOString().split("T")[0];
     const resolveLineArray = (parent) => {
       if (!parent) return [];
       if (Array.isArray(parent.line_items)) return parent.line_items;
@@ -572,8 +632,8 @@ function App() {
     try {
       const res = await axios.get(`${backend}/api/extract`, {
         params: {
-          start_date: toISO(start),
-          end_date: toISO(end),
+          start_date: toDateParam(start),
+          end_date: toDateParam(end),
           type: "invoices",
           account_id: accountId,
           business_id: businessId,
@@ -584,7 +644,8 @@ function App() {
       });
 
       setRaw(res.data);
-      const parents = res.data?.data || [];
+      const parentsRaw = res.data?.data || [];
+      const parents = filterByDateRange(parentsRaw, start, end);
       const rows = [];
 
       const toDate = (val) => {
@@ -710,6 +771,7 @@ function App() {
       });
 
       setProgress(`📄 Invoices ready: ${rows.length} rows`);
+      updateCount(setTypeCounts, "Invoice sheet", rows.length);
     } catch (err) {
       console.error("❌ Invoice sheet failed:", err);
       alert(`Invoice line export failed: ${formatAxiosError(err)}`);
@@ -722,8 +784,6 @@ function App() {
   const extractEstimateSheet = async () => {
     if (!start || !end) return alert("Select date range!");
     if (!accountId) return alert("Account ID missing. Update business first.");
-
-    const toISO = (d) => new Date(d).toISOString().split("T")[0];
 
     setLoading(true);
     setProgress("⏳ Fetching estimates + line items...");
@@ -769,8 +829,8 @@ function App() {
     try {
       const res = await axios.get(`${backend}/api/extract`, {
         params: {
-          start_date: toISO(start),
-          end_date: toISO(end),
+          start_date: toDateParam(start),
+          end_date: toDateParam(end),
           type: "estimates",
           account_id: accountId,
           business_id: businessId,
@@ -781,7 +841,7 @@ function App() {
       });
 
       setRaw(res.data);
-      const parents = res.data?.data || [];
+      const parents = filterByDateRange(res.data?.data || [], start, end);
       const lines = extractLineItems("estimates", parents);
 
       const parentById = Object.fromEntries(
@@ -843,6 +903,7 @@ function App() {
       });
 
       setProgress(`📄 Estimates ready: ${rows.length} rows`);
+      updateCount(setTypeCounts, "Estimate sheet", rows.length);
     } catch (err) {
       console.error("❌ Estimate sheet failed:", err);
       alert(`Estimate line export failed: ${formatAxiosError(err)}`);
@@ -856,7 +917,6 @@ function App() {
     if (!start || !end) return alert("Select date range!");
     if (!accountId) return alert("Account ID missing. Update business first.");
 
-    const toISO = (d) => new Date(d).toISOString().split("T")[0];
     const resolveLineArray = (parent) => {
       if (!parent) return [];
       if (Array.isArray(parent.line_items)) return parent.line_items;
@@ -935,8 +995,8 @@ function App() {
     try {
       const res = await axios.get(`${backend}/api/extract`, {
         params: {
-          start_date: toISO(start),
-          end_date: toISO(end),
+          start_date: toDateParam(start),
+          end_date: toDateParam(end),
           type: "bills",
           account_id: accountId,
           business_id: businessId,
@@ -947,10 +1007,11 @@ function App() {
       });
 
       setRaw(res.data);
-      const parents = Array.isArray(res.data?.data) ? res.data.data : [];
+      const parents = filterByDateRange(res.data?.data || [], start, end);
       if (!parents.length) {
         setData({ success: true, total: 0, data: [] });
         setProgress("⚠️ No bills found for the selected range/account.");
+        updateCount(setTypeCounts, "Bill sheet", 0);
         setLoading(false);
         return;
       }
@@ -1013,6 +1074,7 @@ function App() {
       });
 
       setProgress(`📄 Bills ready: ${rows.length} rows`);
+      updateCount(setTypeCounts, "Bill sheet", rows.length);
     } catch (err) {
       console.error("❌ Bill sheet failed:", err);
       alert(`Bill line export failed: ${formatAxiosError(err)}`);
@@ -1026,7 +1088,6 @@ function App() {
     if (!start || !end) return alert("Select date range!");
     if (!accountId) return alert("Account ID missing. Update business first.");
 
-    const toISO = (d) => new Date(d).toISOString().split("T")[0];
     const resolveLineArray = (parent) => {
       if (!parent) return [];
       if (Array.isArray(parent.line_items_array)) return parent.line_items_array;
@@ -1065,8 +1126,8 @@ function App() {
     try {
       const res = await axios.get(`${backend}/api/extract`, {
         params: {
-          start_date: toISO(start),
-          end_date: toISO(end),
+          start_date: toDateParam(start),
+          end_date: toDateParam(end),
           type: "expenses",
           account_id: accountId,
           business_id: businessId,
@@ -1181,6 +1242,7 @@ function App() {
       });
 
       setProgress(`📄 Expenses ready: ${rows.length} rows`);
+      updateCount(setTypeCounts, "Expense sheet", rows.length);
     } catch (err) {
       console.error("❌ Expense sheet failed:", err);
       alert(`Expense line export failed: ${formatAxiosError(err)}`);
@@ -1286,8 +1348,10 @@ function App() {
         <div className="mmc-brand">
           <img src={mmclogo} className="mmc-header-logo" />
           <div className="mmc-title">
-            <h1>MMC Data Extractor</h1>
-            <p>Powered by FreshBooks API</p>
+            <h1>FreshBooks Data Extractor</h1>
+            <div className="brand-meta">
+              <span className="brand-pill">Powered by MMC Convert</span>
+            </div>
           </div>
         </div>
 
@@ -1479,6 +1543,31 @@ function App() {
           </>
         )}
       </section>
+
+      {/* EXTRACTED COUNTS */}
+      {Object.keys(typeCounts).length > 0 && (
+        <section className="card">
+          <h2>📑 Extracted Counts</h2>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+            {Object.entries(typeCounts).map(([label, count]) => (
+              <li
+                key={label}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "8px 12px",
+                  background: "var(--surface-2, #111827)",
+                  borderRadius: 8,
+                }}
+              >
+                <span>{label}</span>
+                <b>{count} rows</b>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* DATA TABLE */}
       {data && (

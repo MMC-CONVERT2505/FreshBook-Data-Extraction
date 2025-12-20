@@ -684,8 +684,8 @@ body[data-theme="light"] .secondary-btn:hover {
   padding: 22px 32px;
   border-radius: 18px;
 
-  background: linear-gradient(90deg, #1e3a8a, #2563eb, #38bdf8);
-  box-shadow: 0 10px 40px rgba(37, 99, 235, 0.35);
+  background: linear-gradient(120deg, #0ea5e9, #2563eb, #14b8a6);
+  box-shadow: 0 14px 45px rgba(14, 165, 233, 0.32);
 
   margin-bottom: 36px;
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -702,8 +702,8 @@ body[data-theme="light"] .secondary-btn:hover {
   height: 70px;
   border-radius: 50%;
   padding: 5px;
-  background: white;
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.25);
+  background: linear-gradient(145deg, #e0f2fe, #ffffff);
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.25), 0 0 0 4px rgba(255, 255, 255, 0.1);
   object-fit: cover;
 }
 
@@ -714,11 +714,22 @@ body[data-theme="light"] .secondary-btn:hover {
   color: #ffffff;
 }
 
-.mmc-title p {
-  margin: 2px 0 0;
-  font-weight: 500;
-  font-size: 0.95rem;
-  color: rgba(255, 255, 255, 0.85);
+.brand-meta {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-pill {
+  background: rgba(255, 255, 255, 0.18);
+  color: #e0f2fe;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 /* =========================================================
@@ -779,4 +790,3 @@ body[data-theme="light"] .secondary-btn:hover {
     flex-direction: column;
   }
 }
-
