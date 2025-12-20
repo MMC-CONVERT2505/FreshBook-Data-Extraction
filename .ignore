@@ -1,0 +1,10 @@
+# Generated ignore rules for local-only files and folders
+backend/node_modules/
+Frontend/node_modules/
+node_modules/
+.env
+backend/.env
+Frontend/.env
+Frontend/.env.local
+*.log
+*.tmp
